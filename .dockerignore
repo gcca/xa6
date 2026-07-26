@@ -1,0 +1,7 @@
+build/
+.git/
+.clang-format
+compile_commands.json
+CTX.md
+Dockerfile
+.dockerignore

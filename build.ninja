@@ -1,0 +1,93 @@
+cxx = clang++
+cc = clang
+
+cxxflags = -std=c++23 -I3rdparty/mujs
+cflags = -std=c23 -O3 -I3rdparty/mujs
+con_prefix = build/deps/connector
+con_cxxflags = -std=c++17 -I3rdparty/mujs -I$con_prefix/include
+ldflags = -L$con_prefix/lib
+ldlibs = -lduckdb -lm
+gtest_prefix = build/deps/gtest
+test_cxxflags = $cxxflags -isystem $gtest_prefix/include -pthread
+test_ldflags = $ldflags -L$gtest_prefix/lib
+test_ldlibs = $ldlibs -lgtest_main -lgtest -pthread
+
+builddir = build
+devdir = $builddir/dev
+distdir = $builddir/dist
+
+distflags = -O3 -DNDEBUG -flto
+dist_cxxflags = $cxxflags $distflags
+dist_con_cxxflags = $con_cxxflags $distflags
+dist_cflags = -std=c23 -I3rdparty/mujs $distflags
+dist_ldflags = $ldflags -O3 -flto -Wl,-dead_strip
+
+rule mkdir
+  command = mkdir -p $out
+  description = MKDIR $out
+
+rule cc
+  command = $cc $cflags -MMD -MF $out.d -c $in -o $out
+  depfile = $out.d
+  deps = gcc
+  description = CC $out
+
+rule cxx
+  command = $cxx $cxxflags -MMD -MF $out.d -c $in -o $out
+  depfile = $out.d
+  deps = gcc
+  description = CXX $out
+
+rule link
+  command = $cxx $in -o $out $ldflags $ldlibs
+  description = LINK $out
+
+rule test
+  command = $cxx $test_cxxflags $in -o $out $test_ldflags $test_ldlibs
+  description = CXXLINK $out
+
+rule generate_compdb
+  command = ninja -t compdb cc cxx test > $out
+  description = COMPDB $out
+  generator = 1
+
+rule run_tests
+  command = $in
+  description = TEST $in
+  pool = console
+#
+build $devdir: mkdir
+
+build $devdir/libmujs.o: cc 3rdparty/mujs/one.c || $devdir
+build $devdir/xa6_con.o: cxx xa6_con.cpp || $devdir
+  cxxflags = $con_cxxflags
+build $devdir/xa6.o: cxx xa6.cc || $devdir
+
+build $devdir/xa6: link $devdir/xa6.o $devdir/xa6_con.o $
+    $devdir/libmujs.o
+
+build $devdir/xa6-test: test xa6_bcore-test.cc xa6_con-test.cc $
+    xa6-test.cc $devdir/xa6_con.o $devdir/libmujs.o | $
+    xa6_bcore.hpp xa6_con.hpp xa6.cc 3rdparty/mujs/mujs.h || $devdir
+
+build compile_commands.json: generate_compdb build.ninja
+build compdb: phony compile_commands.json
+
+build test: run_tests $devdir/xa6-test
+#
+build $distdir: mkdir
+
+build $distdir/libmujs.o: cc 3rdparty/mujs/one.c || $distdir
+  cflags = $dist_cflags
+build $distdir/xa6_con.o: cxx xa6_con.cpp || $distdir
+  cxxflags = $dist_con_cxxflags
+build $distdir/xa6.o: cxx xa6.cc || $distdir
+  cxxflags = $dist_cxxflags
+
+build $distdir/xa6: link $distdir/xa6.o $distdir/xa6_con.o $
+    $distdir/libmujs.o
+  ldflags = $dist_ldflags
+
+build dist: phony $distdir/xa6
+
+default $devdir/xa6
